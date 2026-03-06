@@ -1,32 +1,37 @@
 # Lab 01 — PostgreSQL
 
-## Paso 01 — Definir servicio PostgreSQL
+## Paso 02 — Configurar Keycloak para usar PostgreSQL
+
+🎯 **Objetivo**
+Configurar el contenedor de Keycloak para que utilice **PostgreSQL como base de datos persistente** en lugar de la base en memoria H2.
 
 ---
 
-## 🎯 Objetivo
+# 🧠 Contexto
 
-Añadir un servicio PostgreSQL para que Keycloak deje de usar base de datos en memoria y pase a almacenamiento persistente.
+Keycloak soporta múltiples bases de datos:
+
+* PostgreSQL
+* MySQL
+* MariaDB
+* Oracle
+* SQL Server
+
+En entornos reales **PostgreSQL es la opción más utilizada**.
+
+Para que Keycloak use PostgreSQL debemos configurar:
+
+* tipo de base de datos
+* host
+* usuario
+* contraseña
+* nombre de base
+
+Esto se hace mediante **variables de entorno** en el contenedor.
 
 ---
 
-## 🧠 Contexto
-
-En modo desarrollo:
-
-* Keycloak usa base en memoria (H2).
-* No es persistente.
-* No es apto para producción.
-
-En producción:
-
-* Se usa PostgreSQL.
-* Se garantiza persistencia.
-* Se habilita clustering real.
-
----
-
-## 📍 Editar docker-compose
+# 📍 Editar docker-compose
 
 Abrir:
 
@@ -34,44 +39,128 @@ Abrir:
 infra/docker-compose.yml
 ```
 
-Añadir dentro de `services:`:
+Localizar el servicio `keycloak`.
 
-```yaml id="m3z7ke"
-  postgres:
-    image: postgres:15
-    container_name: postgres
-    environment:
-      POSTGRES_DB: keycloak
-      POSTGRES_USER: keycloak
-      POSTGRES_PASSWORD: keycloak
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    restart: always
+Ejemplo actual simplificado:
+
+```yaml
+keycloak:
+  image: quay.io/keycloak/keycloak:latest
+  command:
+    - start-dev
+    - --hostname-strict=false
+    - --proxy-headers=xforwarded
+  environment:
+    KEYCLOAK_ADMIN: admin
+    KEYCLOAK_ADMIN_PASSWORD: admin
 ```
 
 ---
 
-## 📍 Añadir volumen persistente
+# ✏️ Añadir configuración de base de datos
 
-Al final del archivo añadir:
+Modificar el servicio `keycloak` para añadir las variables de PostgreSQL.
 
-```yaml id="y5v2lx"
-volumes:
-  postgres_data:
+```yaml
+keycloak:
+  image: quay.io/keycloak/keycloak:latest
+  command:
+    - start-dev
+    - --hostname-strict=false
+    - --proxy-headers=xforwarded
+
+  environment:
+    KEYCLOAK_ADMIN: admin
+    KEYCLOAK_ADMIN_PASSWORD: admin
+
+    KC_DB: postgres
+    KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+    KC_DB_USERNAME: keycloak
+    KC_DB_PASSWORD: keycloak
+
+  depends_on:
+    - postgres
+
+  ports:
+    - "8080:8080"
 ```
 
 ---
 
-## 💾 Guardar cambios
+# 🔎 Explicación de las variables
 
-Verificar que la indentación YAML es correcta.
+| Variable         | Función                               |
+| ---------------- | ------------------------------------- |
+| `KC_DB`          | Motor de base de datos                |
+| `KC_DB_URL`      | URL JDBC de conexión                  |
+| `KC_DB_USERNAME` | Usuario de PostgreSQL                 |
+| `KC_DB_PASSWORD` | Password                              |
+| `depends_on`     | Arranca PostgreSQL antes que Keycloak |
 
 ---
 
-## 🧠 Estado actual
+# 📦 Arquitectura resultante
 
-* Servicio PostgreSQL definido.
-* Volumen persistente configurado.
-* Preparado para conectar Keycloak a esta base de datos en el siguiente paso.
+```
+┌──────────────┐
+│   Browser    │
+└──────┬───────┘
+       │
+       │ HTTP
+       ▼
+┌──────────────┐
+│   Keycloak   │
+│  Port 8080   │
+└──────┬───────┘
+       │ JDBC
+       ▼
+┌──────────────┐
+│ PostgreSQL   │
+│ Port 5432    │
+└──────────────┘
+```
+
+Keycloak ahora **persistirá usuarios, realms, clientes y sesiones en PostgreSQL**.
+
+---
+
+# ▶️ Levantar el entorno
+
+Desde la carpeta `infra` ejecutar:
+
+```bash
+docker compose up -d
+```
+
+---
+
+# 🔎 Verificar conexión
+
+Comprobar logs de Keycloak:
+
+```bash
+docker logs -f keycloak
+```
+
+Buscar mensajes similares a:
+
+```
+Database: PostgreSQL
+Connected to jdbc:postgresql://postgres:5432/keycloak
+```
+
+---
+
+# 🧠 Estado tras este paso
+
+El entorno ahora tiene:
+
+✔ PostgreSQL persistente
+✔ Keycloak conectado a base externa
+✔ datos guardados entre reinicios
+
+Esto nos permite:
+
+* mantener **usuarios**
+* mantener **realms**
+* mantener **clientes**
